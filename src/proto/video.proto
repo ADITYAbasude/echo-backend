@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package proto;
+
+
+service VideoTranscoderService {
+    rpc TranscodeVideo (stream TranscodeVideoRequest) returns (TranscodeVideoResponse);
+}
+
+message TranscodeVideoRequest {
+    string filename = 1;
+    repeated string resolutions = 2;
+}
+
+message TranscodeVideoResponse {
+    string message = 1;
+    bool success = 2;
+    repeated string transcoded_files = 3;
+    int64 duration = 4;
+}
