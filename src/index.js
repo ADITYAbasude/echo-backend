@@ -42,11 +42,11 @@ app.use(express.json());
 app.use(helmet());
 
 // Production-ready CORS configuration
-console.log("Allowed origins:", process.env.ALLOWED_ORIGINS.split(","));
 const allowedOrigins = [
   "http://localhost:3000",
   "https://192.168.0.112:3000",
   "https://echobroadcast.vercel.app",
+  "https://echobroadcast-5nh78c88p-adityas-projects-256ac53f.vercel.app"
 ];
 
 app.use(
@@ -112,6 +112,7 @@ async function startApolloServer() {
     cors: {
       origin: allowedOrigins,
       credentials: true,
+      methods: ["GET", "POST", "OPTIONS"],
     },
   });
 
