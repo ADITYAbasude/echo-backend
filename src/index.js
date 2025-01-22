@@ -39,19 +39,27 @@ app.use(morgan("dev"));
 app.use(express.json());
 
 // Security middleware
-// app.use(helmet());
+app.use(helmet());
 
 // Production-ready CORS configuration
 const allowedOrigins = [
   "http://localhost:3000",
   "https://192.168.0.112:3000",
   "https://echobroadcast.vercel.app",
-  "https://echobroadcast-5nh78c88p-adityas-projects-256ac53f.vercel.app",
+  "https://echobroadcast-5nh78c88p-adityas-projects-256ac53f.vercel.app"
 ];
 
 app.use(
   cors({
-    origin: "*",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "OPTIONS"],
   })
 );
 
@@ -100,6 +108,11 @@ async function startApolloServer() {
   const wsServer = new WebSocketServer({
     server: httpServer,
     path: "/graphql",
+    cors: {
+      origin: allowedOrigins,
+      credentials: true,
+      methods: ["GET", "POST", "OPTIONS"],
+    },
   });
 
   const serverCleanup = useServer(
