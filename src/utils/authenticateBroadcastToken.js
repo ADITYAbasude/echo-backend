@@ -2,11 +2,12 @@ import { BroadcasterSchema } from "../models/broadcastModel.js";
 
 export const authenticateBroadcastToken = async (context) => {
   if (!context.req.broadcast) {
-    throw new Error("Unauthorized Access");
+    return false;
   }
   const { primaryAuthId, broadcastID } = context.req.broadcast;
   if (!primaryAuthId || !broadcastID) {
-    throw new Error("Unauthorized Access");
+    return 0;
+    // throw new Error("Unauthorized Access");
   }
 
   // check in db that they are a members of the broadcast or not.
@@ -21,7 +22,8 @@ export const authenticateBroadcastToken = async (context) => {
   );
 
   if (!isPartOfBroadcast) {
-    throw new Error("Unauthorized Access");
+    return 0;
+    // throw new Error("Unauthorized Access");
   }
   return true;
 };
