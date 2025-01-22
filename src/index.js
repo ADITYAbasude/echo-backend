@@ -25,8 +25,8 @@ import BroadcastResolver from "./api/graphql/resolvers/broadcastResolver.js";
 import authMiddleware from "./middlewares/authMiddleware.js";
 import videoResolver from "./api/graphql/resolvers/videoResolver.js";
 import broadcastMiddleware from "./middlewares/broadcastMiddleware.js";
-import EngagementSchema from "./api/graphql/schema/EngagementSchema.js";
-import EngagementResolver from "./api/graphql/resolvers/EngagementResolver.js";
+import EngagementSchema from "./api/graphql/schema/engagementSchema.js";
+import EngagementResolver from "./api/graphql/resolvers/engagementResolver.js";
 import CollectionResolver from "./api/graphql/resolvers/collectionResolver.js";
 import CollectionSchema from "./api/graphql/schema/collectionSchema.js";
 
