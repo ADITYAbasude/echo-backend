@@ -51,13 +51,7 @@ const allowedOrigins = [
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: true,
     credentials: true,
     methods: ["GET", "POST", "OPTIONS"],
   })
@@ -107,12 +101,7 @@ async function startApolloServer() {
 
   const wsServer = new WebSocketServer({
     server: httpServer,
-    path: "/graphql",
-    cors: {
-      origin: allowedOrigins,
-      credentials: true,
-      methods: ["GET", "POST", "OPTIONS"],
-    },
+    path: "/graphql"
   });
 
   const serverCleanup = useServer(
