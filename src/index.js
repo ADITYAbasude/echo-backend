@@ -35,18 +35,21 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+app.get("/", (req, res) => {
+  res.send("Nothing to get");
+});
+
 app.use(morgan("dev"));
 app.use(express.json());
 
 // Security middleware
 app.use(helmet());
 
-// Production-ready CORS configuration
 const allowedOrigins = [
   "http://localhost:3000",
   "https://192.168.0.112:3000",
   "https://echobroadcast.vercel.app",
-  "https://echobroadcast-5nh78c88p-adityas-projects-256ac53f.vercel.app"
+  "https://echobroadcast-5nh78c88p-adityas-projects-256ac53f.vercel.app",
 ];
 
 app.use(
