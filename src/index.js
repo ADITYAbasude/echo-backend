@@ -7,10 +7,10 @@ import { createServer } from "https";
 import cors from "cors";
 import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/lib/use/ws";
-import { readFileSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import helmet from 'helmet';
+import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import helmet from "helmet";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,27 +42,32 @@ app.use(express.json());
 app.use(helmet());
 
 // Production-ready CORS configuration
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',') 
-  : ['http://localhost:3000', 'https://192.168.0.112:3000'];
+console.log("Allowed origins:", process.env.ALLOWED_ORIGINS.split(","));
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://192.168.0.112:3000",
+  "https://echobroadcast.vercel.app",
+];
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).send('Something broke!');
+  res.status(500).send("Something broke!");
 });
 
 mongodbConnection();
@@ -72,20 +77,31 @@ app.use(broadcastMiddleware);
 app.use(graphqlUploadExpress());
 
 const schema = makeExecutableSchema({
-  typeDefs: mergeTypeDefs([UserSchema, BroadcastSchema, EngagementSchema, CollectionSchema]),
-  resolvers: mergeResolvers([UserResolver, BroadcastResolver, videoResolver, EngagementResolver, CollectionResolver]),
+  typeDefs: mergeTypeDefs([
+    UserSchema,
+    BroadcastSchema,
+    EngagementSchema,
+    CollectionSchema,
+  ]),
+  resolvers: mergeResolvers([
+    UserResolver,
+    BroadcastResolver,
+    videoResolver,
+    EngagementResolver,
+    CollectionResolver,
+  ]),
 });
 
 async function startApolloServer() {
   let httpServer;
 
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV === "production") {
     httpServer = createServer(app);
   } else {
     // Development SSL configuration
     const sslOptions = {
-      key: readFileSync(path.join(__dirname, '../cert/key.pem')),
-      cert: readFileSync(path.join(__dirname, '../cert/cert.pem'))
+      key: readFileSync(path.join(__dirname, "../cert/key.pem")),
+      cert: readFileSync(path.join(__dirname, "../cert/cert.pem")),
     };
     httpServer = createServer(sslOptions, app);
   }
@@ -95,8 +111,8 @@ async function startApolloServer() {
     path: "/graphql",
     cors: {
       origin: allowedOrigins,
-      credentials: true
-    }
+      credentials: true,
+    },
   });
 
   const serverCleanup = useServer(
@@ -124,8 +140,8 @@ async function startApolloServer() {
     ],
     // Production Apollo Server settings
     csrfPrevention: true,
-    cache: 'bounded',
-    introspection: process.env.NODE_ENV !== 'production',
+    cache: "bounded",
+    introspection: process.env.NODE_ENV !== "production",
   });
 
   await server.start();
@@ -141,7 +157,7 @@ async function startApolloServer() {
   });
 }
 
-startApolloServer().catch(error => {
-  console.error('Failed to start server:', error);
+startApolloServer().catch((error) => {
+  console.error("Failed to start server:", error);
   process.exit(1);
 });
