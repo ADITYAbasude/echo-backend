@@ -1,5 +1,5 @@
 import express from "express";
-import morgan from "morgan";
+// Remove morgan import from here
 import { ApolloServer } from "apollo-server-express";
 import { makeExecutableSchema } from "@graphql-tools/schema";
 import { mergeTypeDefs, mergeResolvers } from "@graphql-tools/merge";
@@ -39,8 +39,9 @@ app.get("/", (req, res) => {
   res.send("Nothing to get");
 });
 
-// Only use morgan in development
+// Conditional dynamic import of morgan
 if (process.env.NODE_ENV === 'development') {
+  const { default: morgan } = await import('morgan');
   app.use(morgan("dev"));
 }
 
