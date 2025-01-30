@@ -39,6 +39,12 @@ app.get("/", (req, res) => {
   res.send("Nothing to get");
 });
 
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).send("OK");
+});
+
+
 // Conditional dynamic import of morgan
 if (process.env.NODE_ENV === 'development') {
   const { default: morgan } = await import('morgan');
