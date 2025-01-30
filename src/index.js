@@ -39,7 +39,11 @@ app.get("/", (req, res) => {
   res.send("Nothing to get");
 });
 
-app.use(morgan("dev"));
+// Only use morgan in development
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan("dev"));
+}
+
 app.use(express.json());
 
 // Security middleware
