@@ -29,6 +29,7 @@ import EngagementSchema from "./api/graphql/schema/engagementSchema.js";
 import EngagementResolver from "./api/graphql/resolvers/engagementResolver.js";
 import CollectionResolver from "./api/graphql/resolvers/collectionResolver.js";
 import CollectionSchema from "./api/graphql/schema/collectionSchema.js";
+import { VideosSchema } from "./models/broadcastModel.js";
 
 dotenv.config();
 
@@ -44,13 +45,14 @@ app.get("/health", (req, res) => {
   res.status(200).send("OK");
 });
 
-
 // Conditional dynamic import of morgan
-if (process.env.NODE_ENV === 'development') {
-  const { default: morgan } = await import('morgan');
+if (process.env.NODE_ENV === "development") {
+  const { default: morgan } = await import("morgan");
   app.use(morgan("dev"));
 }
 
+// Add urlencoded parser for NGINX RTMP callbacks
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // Security middleware
@@ -94,14 +96,14 @@ const schema = makeExecutableSchema({
     UserSchema,
     BroadcastSchema,
     EngagementSchema,
-    CollectionSchema,
+    CollectionSchema
   ]),
   resolvers: mergeResolvers([
     UserResolver,
     BroadcastResolver,
     videoResolver,
     EngagementResolver,
-    CollectionResolver,
+    CollectionResolver
   ]),
 });
 
@@ -174,4 +176,42 @@ async function startApolloServer() {
 startApolloServer().catch((error) => {
   console.error("Failed to start server:", error);
   process.exit(1);
+});
+
+app.post("/api/stream/end", async (req, res) => {
+  try {    
+    const streamKey = req.body.name;
+    
+    console.log('Extracted stream key:', streamKey);
+    
+    if (!streamKey) {
+      console.warn('No stream key found in request');
+      return res.status(200).json({ message: "No stream key provided, but acknowledging callback" });
+    }
+
+    // Update the video status
+    const result = await VideosSchema.findOneAndUpdate(
+      { videoKey: streamKey },
+      { 
+        isLive: false,
+      },
+      { new: true }
+    );
+
+    if (!result) {
+      console.warn('No video found for stream key:', streamKey);
+      return res.status(200).json({ message: "Stream key not found, but acknowledging callback" });
+    }
+
+    res.status(200).json({ 
+      message: "Stream ended successfully"
+    });
+  } catch (error) {
+    console.error('Error in stream end handler:', error);
+    // Always return 200 to NGINX even on error
+    res.status(200).json({ 
+      message: "Error processing stream end, but acknowledging callback",
+      error: error.message 
+    });
+  }
 });

@@ -52,6 +52,10 @@ const Video = new Schema({
     available_formats: [String],
     duration: Number
   },
+  isLive: {
+    type: Boolean,
+    default: false,
+  },
 }, { timestamps: true });
 
 Video.index({

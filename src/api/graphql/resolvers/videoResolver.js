@@ -20,6 +20,7 @@ import { GraphQLJSON } from "graphql-type-json";
 import SettingsModel from "../../../models/settingsModel.js";
 import settingsModel from "../../../models/settingsModel.js";
 import CollectionSchema from "../../../models/collectionModel.js";
+import userService from "../../services/userService.js";
 
 const pubsub = new PubSub();
 
@@ -244,7 +245,7 @@ const videoResolver = {
     // Update existing uploadVideo mutation to handle post-upload processing
     uploadVideo: async (_, { videoId }, context) => {
       authenticateUser(context);
-      if (!authenticateBroadcastToken(context))
+      if (!(await authenticateBroadcastToken(context)))
         return { message: "Unauthorized", success: false };
 
       const userId = context.req.user.sub.split("|")[1];
@@ -405,6 +406,99 @@ const videoResolver = {
         message: "Video deleted successfully",
         success: true,
       };
+    },
+    streamBroadcast: async (_, { input }, context) => {
+      authenticateUser(context);
+
+      if (await authenticateBroadcastToken(context)) {
+        // check user is broadcaster or not
+        const { broadcastID } = context.req.broadcast;
+
+        const userDetails = await userService.getUserById(context.req.user.sub.split("|")[1]);
+
+        const checkIsBroadcaster = await BroadcasterSchema.find({
+          _id: broadcastID,
+          broadcastMembers: {
+            $elemMatch: {
+              primaryAuthId: userDetails.primaryAuthId,
+              role: "BROADCASTER",
+            },
+          },
+        });
+
+        console.log(checkIsBroadcaster);
+
+        if (!checkIsBroadcaster) {
+          return { message: "Unauthorized", success: false };
+        }
+
+        const anyActiveStream = await VideosSchema.findOne({
+          broadcastID,
+          isLive: true,
+        });
+
+        if (anyActiveStream) {
+          return {
+            message: "There is an active stream already",
+            success: false,
+          };
+        }
+
+        const { title, description, poster } = input;
+        const { createReadStream } = await poster;
+        const stream = createReadStream();
+
+        if (!title || !description || !poster) {
+          return {
+            message: "Please provide all required fields",
+            success: false,
+          };
+        }
+
+        let result;
+        try {
+          result = await new Promise((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              {
+                folder: "Echo/video poster",
+              },
+              (err, result) => {
+                if (err) reject(err);
+                resolve(result);
+              }
+            );
+            stream.pipe(uploadStream);
+          });
+        } catch (err) {
+          return {
+            message: `Error uploading image, ${err.message}`,
+            success: false,
+          };
+        }
+
+        const videoKey = uuidv4();
+        const streamKey = uuidv4();
+
+        await VideosSchema.create({
+          metaData: {
+            title,
+            description,
+            posterUrl: result.secure_url,
+          },
+          draft: false,
+          broadcastID,
+          primaryAuthId: userDetails.primaryAuthId,
+          isLive: true,
+          videoKey,
+        });
+        return {
+          message: "Broadcast started successfully",
+          success: true,
+          streamKey,
+        };
+      } else {
+        return { message: "Unauthorized", success: false };
+      }
     },
   },
   Subscription: {

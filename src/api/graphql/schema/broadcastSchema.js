@@ -16,6 +16,7 @@ const BroadcastSchema = gql`
 
   type Video {
     _id: ID!
+    isLive: Boolean
     metaData: MetaData
     videoKey: String!
     primaryAuthId: String!
@@ -58,6 +59,7 @@ const BroadcastSchema = gql`
     getBroadcaster: BroadcasterAccount
     getBroadcastVideosByToken: [Video]
     getVideoSignedUrl(videoID: ID!): hlsSignedUrlPayload
+    getLiveStreamStatus: liveStreamPayload!
   }
 
   type Mutation {
@@ -74,6 +76,8 @@ const BroadcastSchema = gql`
     respondToCollaboration(input: CollaborationResponse!): payload!
     joinBroadcast(broadcastName: String!): payload!
     leaveBroadcast(broadcastName: String!): payload!
+    streamBroadcast(input: StreamBroadcastInput!): streamBroadcastPayload!
+    endBroadcastStream: payload!
   }
 
   type Subscription {
@@ -91,6 +95,12 @@ const BroadcastSchema = gql`
     PENDING
     ACCEPTED
     REJECTED
+  }
+
+  type streamBroadcastPayload {
+    message: String
+    success: Boolean!
+    streamKey: String
   }
 
   type requestStatus {
@@ -123,6 +133,12 @@ const BroadcastSchema = gql`
     primaryAuthId: ID
     role: Role
     user: User
+  }
+
+  input StreamBroadcastInput {
+    title: String!
+    description: String!
+    poster: Upload!
   }
 
   input deleteVideoInput {
@@ -212,6 +228,17 @@ const BroadcastSchema = gql`
     resolutions: JSON
     initialResolution: String
     success: Boolean!
+  }
+
+  type liveStreamPayload {
+    isLive: Boolean
+    streamTitle: String
+    viewerCount: Int
+    startedAt: String
+    posterUrl: String
+    streamKey: String
+    success: Boolean!
+    message: String!
   }
 `;
 

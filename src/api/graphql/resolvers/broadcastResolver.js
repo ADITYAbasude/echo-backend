@@ -3,7 +3,10 @@ import { PubSub, withFilter } from "graphql-subscriptions";
 import { authenticateUser } from "../../../utils/authenticatUser.js";
 import UserSchema from "../../../models/userModel.js";
 import broadcastService from "../../services/broadcastService.js";
-import { BroadcasterSchema } from "../../../models/broadcastModel.js";
+import {
+  BroadcasterSchema,
+  VideosSchema,
+} from "../../../models/broadcastModel.js";
 import jwt from "jsonwebtoken";
 import redisClient from "../../../config/redisConfig.js";
 import { authenticateBroadcastToken } from "../../../utils/authenticateBroadcastToken.js";
@@ -17,7 +20,7 @@ const BroadcastResolver = {
       try {
         authenticateUser(context);
         await authenticateBroadcastToken(context);
-        
+
         const broadcastMemberKey = `broadcastMembers:${broadcastName}`;
         const members = await redisClient.get(broadcastMemberKey);
         if (members) {
@@ -46,7 +49,7 @@ const BroadcastResolver = {
 
     verifyBroadcastAccount: async (_, {}, context) => {
       try {
-        if (!authenticateBroadcastToken(context))
+        if (!(await authenticateBroadcastToken(context)))
           return {
             status: "UNVERIFIED",
             message: "Broadcast not found",
@@ -100,6 +103,48 @@ const BroadcastResolver = {
         );
       } catch (error) {
         return null;
+      }
+    },
+
+    getLiveStreamStatus: async (_, __, context) => {
+      try {
+        authenticateUser(context);
+        if (!(await authenticateBroadcastToken(context))) {
+          return {
+            message: "Broadcast not found",
+            success: false,
+          };
+        }
+
+        // Check if any live stream is active
+        const anyLiveStream = await VideosSchema.findOne({
+          broadcastID: context.req.broadcast.broadcastID,
+          isLive: true,
+        });
+
+        if (anyLiveStream) {
+          return {
+            isLive: true,
+            streamTitle: anyLiveStream.metaData.title,
+            viewerCount: anyLiveStream.metaData.viewCount,
+            startedAt: anyLiveStream.createdAt,
+            posterUrl: anyLiveStream.metaData.posterUrl,
+            streamKey: anyLiveStream.videoKey,
+            message: "Live stream is active",
+            success: true,
+          };
+        }
+
+        return {
+          isLive: false,
+          message: "No live stream is active",
+          success: true,
+        };
+      } catch (err) {
+        return {
+          success: false,
+          message: "Internal server error",
+        };
       }
     },
   },
@@ -235,7 +280,7 @@ const BroadcastResolver = {
 
     updateRole: async (_, { input }, context) => {
       authenticateUser(context);
-      if (!authenticateBroadcastToken(context)) return;
+      if (!(await authenticateBroadcastToken(context))) return;
       const { memberAuthId, role } = input;
 
       try {
@@ -317,7 +362,7 @@ const BroadcastResolver = {
 
     removeMember: async (_, { input }, context) => {
       authenticateUser(context);
-      if (!authenticateBroadcastToken(context)) return;
+      if (!(await authenticateBroadcastToken(context))) return;
       const { memberAuthId } = input;
       const { primaryAuthId, broadcastID } = context.req.broadcast;
       try {
@@ -587,6 +632,66 @@ const BroadcastResolver = {
         console.error("Error in leaveBroadcast:", e);
         return {
           message: "An error occurred",
+          success: false,
+        };
+      }
+    },
+    endBroadcastStream: async (_, __, context) => {
+      authenticateUser(context);
+      if (!(await authenticateBroadcastToken(context)))
+        return {
+          message: "Broadcast not found",
+          success: false,
+        };
+
+      try {
+        // check it is broadcaster or not
+        const broadcast = await BroadcasterSchema.findById(
+          context.req.broadcast.broadcastID
+        );
+
+        const userDetails = await UserSchema.findOne({
+          authProviders: {
+            $elemMatch: { oAuthID: context.req.user.sub.split("|")[1] },
+          },
+        });
+
+        const isBroadcaster = broadcast.broadcastMembers.some(
+          (member) =>
+            member.primaryAuthId === userDetails.primaryAuthId &&
+            member.role === "BROADCASTER"
+        );
+
+        if (!isBroadcaster) {
+          return {
+            message: "Only broadcaster can end the stream",
+            success: false,
+          };
+        }
+
+        const video = await VideosSchema.findOne({
+          broadcastID: context.req.broadcast.broadcastID,
+          isLive: true,
+        });
+
+        if (!video) {
+          return {
+            message: "No live stream found",
+            success: false,
+          };
+        }
+
+        video.isLive = false;
+        await video.save();
+
+        return {
+          message: "Stream ended successfully",
+          success: true,
+        };
+      } catch (error) {
+        console.error("Error in endBroadcastStream:", error);
+        return {
+          message: "Internal server error",
           success: false,
         };
       }
