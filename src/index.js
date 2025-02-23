@@ -198,7 +198,7 @@ async function startApolloServer() {
 
   await server.start();
   server.applyMiddleware({ app, cors: true, path: "/graphql" });
-  return Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     httpServer.listen(PORT, "0.0.0.0", () => {
       const domain = process.env.RENDER_EXTERNAL_URL || `localhost:${PORT}`;
       const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
