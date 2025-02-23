@@ -101,15 +101,44 @@ const schema = makeExecutableSchema({
     UserSchema,
     BroadcastSchema,
     EngagementSchema,
-    CollectionSchema
+    CollectionSchema,
   ]),
   resolvers: mergeResolvers([
     UserResolver,
     BroadcastResolver,
     videoResolver,
     EngagementResolver,
-    CollectionResolver
+    CollectionResolver,
   ]),
+});
+
+// Add this before startApolloServer()
+app.use((err, req, res, next) => {
+  console.error('Error details:', {
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method
+  });
+  
+  res.status(500).json({
+    message: 'Internal Server Error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// Add global error handlers
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection:', {
+    reason,
+    promise
+  });
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Give time for logs to be written
+  setTimeout(() => process.exit(1), 1000);
 });
 
 async function startApolloServer() {
@@ -169,16 +198,31 @@ async function startApolloServer() {
 
   await server.start();
   server.applyMiddleware({ app, cors: true, path: "/graphql" });
+  return Promise((resolve, reject) => {
+    httpServer.listen(PORT, "0.0.0.0", () => {
+      const domain = process.env.RENDER_EXTERNAL_URL || `localhost:${PORT}`;
+      const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+      const wsProtocol = process.env.NODE_ENV === "production" ? "wss" : "ws";
 
-  httpServer.listen(PORT, '0.0.0.0',() => {
-    console.log(
-      `🚀 Server ready at https://localhost:${PORT}${server.graphqlPath}`
-    );
-    console.log(
-      `🚀 Subscriptions ready at wss://localhost:${PORT}${server.graphqlPath}`
-    );
+      console.log(
+        `🚀 Server ready at https://localhost:${PORT}${server.graphqlPath}`
+      );
+      console.log(
+        `🚀 Subscriptions ready at wss://localhost:${PORT}${server.graphqlPath}`
+      );
+      resolve({ server, httpServer });
+    }).on("error", (error) => {
+      console.error("Failed to start server:", error);
+      reject(error)
+    });
   });
 }
+
+app.use((err, req, res, next) => {  
+  console.error(err.stack);
+  res.status(500).send("Something broke!");
+});
+
 
 startApolloServer().catch((error) => {
   console.error("Failed to start server:", error);
@@ -186,39 +230,45 @@ startApolloServer().catch((error) => {
 });
 
 app.post("/api/stream/end", async (req, res) => {
-  try {    
+  try {
     const streamKey = req.body.name;
-    
-    console.log('Extracted stream key:', streamKey);
-    
+
+    console.log("Extracted stream key:", streamKey);
+
     if (!streamKey) {
-      console.warn('No stream key found in request');
-      return res.status(200).json({ message: "No stream key provided, but acknowledging callback" });
+      console.warn("No stream key found in request");
+      return res
+        .status(200)
+        .json({
+          message: "No stream key provided, but acknowledging callback",
+        });
     }
 
     // Update the video status
     const result = await VideosSchema.findOneAndUpdate(
       { videoKey: streamKey },
-      { 
+      {
         isLive: false,
       },
       { new: true }
     );
 
     if (!result) {
-      console.warn('No video found for stream key:', streamKey);
-      return res.status(200).json({ message: "Stream key not found, but acknowledging callback" });
+      console.warn("No video found for stream key:", streamKey);
+      return res
+        .status(200)
+        .json({ message: "Stream key not found, but acknowledging callback" });
     }
 
-    res.status(200).json({ 
-      message: "Stream ended successfully"
+    res.status(200).json({
+      message: "Stream ended successfully",
     });
   } catch (error) {
-    console.error('Error in stream end handler:', error);
+    console.error("Error in stream end handler:", error);
     // Always return 200 to NGINX even on error
-    res.status(200).json({ 
+    res.status(200).json({
       message: "Error processing stream end, but acknowledging callback",
-      error: error.message 
+      error: error.message,
     });
   }
 });
