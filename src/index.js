@@ -117,6 +117,7 @@ async function startApolloServer() {
 
   if (process.env.NODE_ENV === "production") {
     httpServer = createServer(app);
+    console.log("Starting server in production mode");
   } else {
     // Development SSL configuration
     const sslOptions = {
@@ -124,6 +125,7 @@ async function startApolloServer() {
       cert: readFileSync(path.join(__dirname, "../cert/cert.pem")),
     };
     httpServer = createServer(sslOptions, app);
+    console.log("Starting server in development mode");
   }
 
   const wsServer = new WebSocketServer({
@@ -166,7 +168,7 @@ async function startApolloServer() {
   });
 
   await server.start();
-  server.applyMiddleware({ app });
+  server.applyMiddleware({ app, cors: true, path: "/graphql" });
 
   httpServer.listen(PORT, '0.0.0.0',() => {
     console.log(
