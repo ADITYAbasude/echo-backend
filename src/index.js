@@ -65,6 +65,11 @@ const allowedOrigins = [
   "https://echobroadcast-5nh78c88p-adityas-projects-256ac53f.vercel.app",
 ];
 
+// Add Render's URL to allowed origins if available
+if (process.env.RENDER_EXTERNAL_URL) {
+  allowedOrigins.push(process.env.RENDER_EXTERNAL_URL);
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -163,7 +168,7 @@ async function startApolloServer() {
   await server.start();
   server.applyMiddleware({ app });
 
-  httpServer.listen(PORT, () => {
+  httpServer.listen(PORT, '0.0.0.0',() => {
     console.log(
       `🚀 Server ready at https://localhost:${PORT}${server.graphqlPath}`
     );

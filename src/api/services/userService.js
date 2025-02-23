@@ -79,10 +79,6 @@ class UserService {
     }
   }
 
-  async getSingleBroadcaster(broadcastName) {
-    return BroadcasterSchema.findOne({ broadcastName });
-  }
-
   async getHomeContent() {
     const carouselShowingData = await VideosSchema.aggregate([
       {
@@ -97,9 +93,6 @@ class UserService {
     return { carousel: carouselShowingData, content: contentShowingData };
   }
 
-  async getBroadcastVideos(broadcastId) {
-    return VideosSchema.find({ broadcastId });
-  }
 }
 
 export default new UserService();

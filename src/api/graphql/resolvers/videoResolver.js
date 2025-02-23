@@ -29,34 +29,35 @@ const videoResolver = {
   JSON: GraphQLJSON,
   Query: {
     getBroadcastVideos: async (_, { broadcastName }) => {
-      const broadcastNameToIDKey = `broadcastNameToID:${broadcastName}`;
-
-      const broadcastID = await JSON.parse(
-        redisClient.get(broadcastNameToIDKey)
-      );
-
-      if (!broadcastID) {
-        const videos = await VideosSchema.find({
-          broadcastID: broadcastID,
-          draft: false,
-        });
-        if (!videos) return [];
-        return videos;
-      }
+      const broadcastNameToIDKey = `broadcastVideo:${broadcastName}`;
+      const cachedVideos = await redisClient.get(broadcastNameToIDKey);
+      if (cachedVideos) {
+        return JSON.parse(cachedVideos);
+      }      
       const broadcast = await BroadcasterSchema.findOne({ broadcastName });
       if (!broadcast) return [];
-      await redisClient.set(broadcastNameToIDKey, broadcast._id, "EX", 60 * 60);
       const videos = await VideosSchema.find({ broadcastID: broadcast._id });
       if (!videos) return [];
+      await redisClient.set(broadcastNameToIDKey, JSON.stringify(videos));
+      await redisClient.expire(broadcastNameToIDKey, 60 * 60);
       return videos;
     },
     getBroadcastVideosByToken: async (_, __, context) => {
-      // TODO: optimize this function to use redis
       authenticateUser(context);
-      if (!context.req.broadcast) return [];
+      if (!(await authenticateBroadcastToken(context))) return [];
       const broadcastID = context.req.broadcast.broadcastID;
+
+      const broadcastVideosByToken = `broadcastVideosByToken:${broadcastID}`;
+
+      const cachedVideos = await redisClient.get(broadcastVideosByToken);
+      if (cachedVideos) {
+        return JSON.parse(cachedVideos);
+      }
+
       const videos = await VideosSchema.find({ broadcastID });
       if (!videos) return [];
+      await redisClient.set(broadcastVideosByToken, JSON.stringify(videos));
+      await redisClient.expire(broadcastVideosByToken, 60); // Expire in 1 minute
       return videos;
     },
     getVideoByID: async (_, { videoID }) => {
@@ -72,10 +73,9 @@ const videoResolver = {
       if (!video) return null;
       const cachedVideo = await redisClient.set(
         cacheKey,
-        JSON.stringify(video),
-        "EX",
-        60
+        JSON.stringify(video)
       );
+      await redisClient.expire(cacheKey, 60);
       return cachedVideo;
     },
     getVideoSignedUrl: async (_, { videoID }, context) => {
@@ -202,9 +202,18 @@ const videoResolver = {
       return user;
     },
     userSettings: async (parent) => {
+      const userSettingsKey = `userSettings:${parent.primaryAuthId}`;
+      const cachedSettings = await redisClient.get(userSettingsKey);
+      if (cachedSettings) {
+        return JSON.parse(cachedSettings);
+      }
       const settings = await SettingsModel.findOne({
         primaryAuthId: parent.primaryAuthId,
       });
+
+      if (!settings) return null;
+      await redisClient.set(userSettingsKey, JSON.stringify(settings));
+      await redisClient.expire(userSettingsKey, 60); // Expire in 1 minute 
       return settings;
     },
   },
@@ -215,10 +224,7 @@ const videoResolver = {
         return { signedUrl: null, videoID: null, success: false };
 
       const userId = context.req.user.sub.split("|")[1];
-      // get primaryAuthID
-      const userDetails = await UserSchema.findOne({
-        authProviders: { $elemMatch: { oAuthID: userId } },
-      });
+      const userDetails = await userService.getUserById(userId);
       const filename = `${uuidv4()}`;
 
       try {
@@ -250,9 +256,7 @@ const videoResolver = {
 
       const userId = context.req.user.sub.split("|")[1];
       // get primaryAuthID
-      const userDetails = await UserSchema.findOne({
-        authProviders: { $elemMatch: { oAuthID: userId } },
-      });
+      const userDetails = await userService.getUserById(userId);
       try {
         const video = await VideosSchema.findOne({
           _id: videoId,
@@ -289,14 +293,13 @@ const videoResolver = {
     },
     storeVideoDetails: async (_, { input }, context) => {
       authenticateUser(context);
-      if (!context.req.broadcast)
+      if (!await authenticateBroadcastToken(context))
         return { message: "Unauthorized", success: false };
       const broadcastID = context.req.broadcast.broadcastID;
       const {
         videoTitle,
         videoDescription,
         videoPoster,
-        videoDuration,
         videoID,
       } = input;
       const { createReadStream } = await videoPoster;
@@ -357,15 +360,13 @@ const videoResolver = {
     },
     deleteVideo: async (_, { input }, context) => {
       authenticateUser(context);
-      if (!context.req.broadcast)
+      if (!await authenticateBroadcastToken(context))
         return { message: "Unauthorized", success: false };
 
       const { broadcastID } = context.req.broadcast;
       const { videoID, auth0ID } = input;
 
-      const user = await UserSchema.findOne({
-        "authProviders.oAuthID": auth0ID,
-      });
+      const user = await userService.getUserById(auth0ID);
 
       if (!user) {
         return {
@@ -414,7 +415,9 @@ const videoResolver = {
         // check user is broadcaster or not
         const { broadcastID } = context.req.broadcast;
 
-        const userDetails = await userService.getUserById(context.req.user.sub.split("|")[1]);
+        const userDetails = await userService.getUserById(
+          context.req.user.sub.split("|")[1]
+        );
 
         const checkIsBroadcaster = await BroadcasterSchema.find({
           _id: broadcastID,

@@ -59,15 +59,26 @@ const UserResolver = {
 
   Query: {
     getUser: async (_, { id }) => {
-      //TODO: add caching to this query to reduce the number of requests to the database
       return userService.getUserById(id);
     },
     getSingleBroadcaster: async (_, { broadcastName }) => {
       try {
         //TODO: add caching to this query to reduce the number of requests to the database
-        return userService.getSingleBroadcaster(broadcastName);
+        const cacheKey = `broadcaster:${broadcastName}`;
+        const cachedBroadcast = await redisClient.get(cacheKey);
+        if (cachedBroadcast) {
+          return JSON.parse(cachedBroadcast);
+        }
+
+        const broadcast = await BroadcasterSchema.findOne({ broadcastName });
+        if (!broadcast) {
+          throw new Error("Broadcaster not found");
+        }
+        await redisClient.setEx(cacheKey, 300, JSON.stringify(broadcast)); // Cache for 5 minutes
+        return broadcast;
       } catch (error) {
         console.log("Error:", error);
+        throw new Error("Failed to fetch broadcaster details");
       }
     },
     getHomeContent: async () => {
@@ -182,22 +193,57 @@ const UserResolver = {
   },
 
   BroadcastDetails: {
-    videos: async (_, { broadcastId }) => {
-      return userService.getBroadcastVideos(broadcastId);
-    },
-    isJoined: async (_, __, context) => {
-      if (!context.req.user) return false;
-      if (!context.req.broadcast) return false;
-      // if (!context.req.broadcast)
-      const authId = context.req.user.sub.split("|")[1];
-      if (!authId) return false;
+    videos: async (parent) => {
+      try {
+        const cacheKey = `broadcast:videos:${parent._id}`;
+        await redisClient.del(cacheKey);
+        // Try to get cached videos first
+        const cachedVideos = await redisClient.get(cacheKey);
+        if (cachedVideos) {
+          return JSON.parse(cachedVideos);
+        }
 
-      const broadcast = await BroadcasterSchema.findOne({
-        _id: context.req.broadcast.broadcastID,
-      });
-      return broadcast.broadcastMembers.some(
-        (member) => member.primaryAuthId === user.primaryAuthId
-      );
+        // If not in cache, fetch from database
+        const videos = await VideosSchema.find({ broadcastID: parent._id });
+        // Check if videos is an array and has elements before caching
+        if (Array.isArray(videos) && videos.length > 0) {
+          await redisClient.setEx(cacheKey, 300, JSON.stringify(videos)); // Cache for 5 minutes
+        }
+        
+        return videos;
+      } catch (error) {
+        console.error("Error fetching broadcast videos:", error);
+        throw error;
+      }
+    },
+    isJoined: async (parent, _, context) => {
+      try {
+        if (!context.req.user) return false;
+        
+        const authId = context.req.user.sub.split("|")[1];
+        if (!authId) return false;
+
+        if (!parent || !parent._id) {
+          console.log("No broadcast ID found in parent", parent);
+          return false;
+        }
+
+        const broadcast = await BroadcasterSchema.findOne({
+          _id: parent._id
+        });
+
+        if (!broadcast) {
+          console.log("No broadcast found with ID", parent._id);
+          return false;
+        }
+
+        return broadcast.broadcastMembers.some(
+          (member) => member.primaryAuthId === authId
+        );
+      } catch (error) {
+        console.error("Error in isJoined resolver:", error);
+        return false;
+      }
     },
   },
 };

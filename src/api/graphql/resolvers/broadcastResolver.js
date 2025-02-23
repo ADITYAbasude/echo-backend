@@ -10,6 +10,7 @@ import {
 import jwt from "jsonwebtoken";
 import redisClient from "../../../config/redisConfig.js";
 import { authenticateBroadcastToken } from "../../../utils/authenticateBroadcastToken.js";
+import userServices from "../../services/userService.js";
 
 const pubsub = new PubSub();
 
@@ -35,9 +36,7 @@ const BroadcastResolver = {
 
         await redisClient.set(
           broadcastMemberKey,
-          JSON.stringify(broadcast.broadcastMembers),
-          "EX",
-          60
+          JSON.stringify(broadcast.broadcastMembers)
         );
         redisClient.expire(broadcastMemberKey, 60);
 
@@ -157,7 +156,7 @@ const BroadcastResolver = {
 
     updateBroadcast: async (_, { input }, context) => {
       authenticateUser(context);
-      if (!context.req.broadcast) {
+      if (!(await authenticateBroadcastToken(context))) {
         return {
           message: "Not authorized to update broadcast details",
           success: false,
@@ -179,6 +178,13 @@ const BroadcastResolver = {
             member.primaryAuthId === primaryAuthId &&
             member.role === "BROADCASTER"
         );
+
+        if (!isBroadcaster) {
+          return {
+            message: "Only broadcasters can update broadcast details",
+            success: false,
+          };
+        }
 
         // Check if broadcast name is taken (if it's being changed)
         if (broadcastName && broadcastName !== broadcast.broadcastName) {
@@ -230,6 +236,7 @@ const BroadcastResolver = {
       }
     },
 
+    //! This mutation is not used in the client anymore.
     addMember: async (_, { input }, context) => {
       authenticateUser(context);
       const { broadcastID, primaryAuthId } = input;
@@ -265,12 +272,8 @@ const BroadcastResolver = {
         await findBroadcast.save();
 
         // Update cache
-        await redisClient.set(
-          cacheKey,
-          JSON.stringify(findBroadcast),
-          "EX",
-          60 * 60
-        );
+        await redisClient.set(cacheKey, JSON.stringify(findBroadcast));
+        await redisClient.expire(cacheKey, 60);
         // TODO: give broadcast access token to user
         return { message: "member added successfully", success: true };
       } catch (error) {
@@ -292,9 +295,7 @@ const BroadcastResolver = {
           return { message: "Broadcast not found", success: false };
         }
 
-        const memberDetails = await UserSchema.findOne({
-          authProviders: { $elemMatch: { oAuthID: memberAuthId } },
-        });
+        const memberDetails = await userServices.getUserById(memberAuthId);
         if (!memberDetails) {
           return { message: "Member not found", success: false };
         }
@@ -428,7 +429,7 @@ const BroadcastResolver = {
     requestVideoCollaboration: async (_, { input }, context) => {
       authenticateUser(context);
 
-      if (!context.req.broadcast) {
+      if (!(await authenticateBroadcastToken(context))) {
         return {
           message: "You are not authorized to send a collaboration request",
           success: false,
@@ -482,11 +483,9 @@ const BroadcastResolver = {
           };
         }
 
-        const userDetails = await UserSchema.findOne({
-          authProviders: {
-            $elemMatch: { oAuthID: context.req.user.sub.split("|")[1] },
-          },
-        });
+        const userDetails = await userServices.getUserById(
+          context.req.user.primaryAuthId
+        );
 
         if (!userDetails) {
           return {
@@ -540,7 +539,7 @@ const BroadcastResolver = {
     },
     leaveBroadcast: async (_, { broadcastName }, context) => {
       authenticateUser(context);
-      if (!context.req.broadcast) {
+      if (!(await authenticateBroadcastToken(context))) {
         return {
           message: "Broadcast not found",
           success: false,
@@ -555,11 +554,9 @@ const BroadcastResolver = {
           };
         }
 
-        const userDetails = await UserSchema.findOne({
-          authProviders: {
-            $elemMatch: { oAuthID: context.req.user.sub.split("|")[1] },
-          },
-        });
+        const userDetails = await userServices.getUserById(
+          context.req.user.sub.split("|")[1]
+        );
 
         if (!userDetails) {
           return {
@@ -650,11 +647,9 @@ const BroadcastResolver = {
           context.req.broadcast.broadcastID
         );
 
-        const userDetails = await UserSchema.findOne({
-          authProviders: {
-            $elemMatch: { oAuthID: context.req.user.sub.split("|")[1] },
-          },
-        });
+        const userDetails = await userServices.getUserById(
+          context.req.user.sub.split("|")[1]
+        );
 
         const isBroadcaster = broadcast.broadcastMembers.some(
           (member) =>
@@ -714,9 +709,7 @@ const BroadcastResolver = {
 
   BroadcastMemberPayload: {
     user: async (parent) => {
-      const user = await UserSchema.findOne({
-        primaryAuthId: parent.primaryAuthId,
-      });
+      const user = await userServices.getUserById(parent.primaryAuthId);
       return user;
     },
   },
