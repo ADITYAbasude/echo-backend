@@ -191,7 +191,9 @@ async function startApolloServer() {
       },
     ],
     // Production Apollo Server settings
-    csrfPrevention: true,
+    csrfPrevention: {
+      requestHeaders: ['x-apollo-operation-name', 'content-type']
+    },
     cache: "bounded",
     introspection: process.env.NODE_ENV !== "production",
   });

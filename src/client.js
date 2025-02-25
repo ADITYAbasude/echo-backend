@@ -42,50 +42,98 @@ const client = new videoService(
   serviceUrl,
   getCredentials(),
   {
-    "grpc.keepalive_time_ms": 10000,
-    "grpc.keepalive_timeout_ms": 5000,
-    "grpc.keepalive_permit_without_calls": 1,
-    "grpc.enable_http_proxy": 0,
     "grpc.max_receive_message_length": 1024 * 1024 * 100, // 100MB
     "grpc.max_send_message_length": 1024 * 1024 * 100, // 100MB
   }
 );
 
 const transcodeVideo = (videoKey, pubsub, userId, videoId) => {
-  const call = client.TranscodeVideo(async (error, response) => {
-    if (error) {
-      console.error("Transcoding error:", error);
+  // Notify that transcoding has started
+  pubsub.publish("VIDEO_STATUS_UPDATE", {
+    videoUploadingAndTranscodingStatus: {
+      status: "TRANSCODING",
+      userId: userId,
+      videoId: videoId,
+    },
+  });
+
+  return new Promise((resolve, reject) => {
+    const call = client.TranscodeVideo((error, response) => {
+      if (error) {
+        console.error("Transcoding error:", error);
+        pubsub.publish("VIDEO_STATUS_UPDATE", {
+          videoUploadingAndTranscodingStatus: {
+            status: "FAILED",
+            userId: userId,
+            videoId: videoId,
+            error: error.message,
+          },
+        });
+        reject(error);
+        return;
+      }
+
+      if (!response.success) {
+        console.error("Transcoding failed:", response.message);
+        pubsub.publish("VIDEO_STATUS_UPDATE", {
+          videoUploadingAndTranscodingStatus: {
+            status: "FAILED",
+            userId: userId,
+            videoId: videoId,
+            error: response.message,
+          },
+        });
+        reject(new Error(response.message));
+        return;
+      }
+
+      VideosSchema.findByIdAndUpdate(videoId, {
+        $set: {
+          "metaData.available_formats": response.transcoded_files,
+          "metaData.duration": response.duration,
+        },
+      })
+      .then(() => {
+        pubsub.publish("VIDEO_STATUS_UPDATE", {
+          videoUploadingAndTranscodingStatus: {
+            status: "TRANSCODED",
+            userId: userId,
+            videoId: videoId,
+          },
+        });
+        resolve(response);
+      })
+      .catch((err) => {
+        console.error("Error updating video metadata:", err);
+        pubsub.publish("VIDEO_STATUS_UPDATE", {
+          videoUploadingAndTranscodingStatus: {
+            status: "FAILED",
+            userId: userId,
+            videoId: videoId,
+            error: "Failed to update video metadata",
+          },
+        });
+        reject(err);
+      });
+    });
+
+    call.write({ filename: videoKey });
+    call.end();
+
+    // Add error handler for stream errors
+    call.on('error', (err) => {
+      console.error("Stream error:", err);
       pubsub.publish("VIDEO_STATUS_UPDATE", {
         videoUploadingAndTranscodingStatus: {
           status: "FAILED",
           userId: userId,
           videoId: videoId,
-          error: error.message,
+          error: "Stream error: " + err.message,
         },
       });
-      return;
-    }
-
-    await VideosSchema.findByIdAndUpdate(videoId, {
-      $set: {
-        "metaData.available_formats": response.transcoded_files,
-        "metaData.duration": response.duration,
-      },
-    });
-
-    pubsub.publish("VIDEO_STATUS_UPDATE", {
-      videoUploadingAndTranscodingStatus: {
-        status: "TRANSCODED",
-        userId: userId,
-        videoId: videoId,
-      },
+      reject(err);
     });
   });
-
-  call.write({
-    filename: videoKey,
-  });
-  call.end();
 };
 
 export default transcodeVideo;

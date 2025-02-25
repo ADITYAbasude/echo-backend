@@ -17,11 +17,11 @@ const UserSchema = gql`
   }
 
   type Settings {
-    defaultQuality: String!
-    enableHotkeys: Boolean!
-    defaultVolume: Int!
-    defaultPlaybackSpeed: Float!
-    autoPlay: Boolean!
+    defaultQuality: String
+    enableHotkeys: Boolean
+    defaultVolume: Int
+    defaultPlaybackSpeed: Float
+    autoPlay: Boolean
   }
 
   input CreateUserInput {

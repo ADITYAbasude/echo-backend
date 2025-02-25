@@ -11,6 +11,7 @@ import jwt from "jsonwebtoken";
 import redisClient from "../../../config/redisConfig.js";
 import { authenticateBroadcastToken } from "../../../utils/authenticateBroadcastToken.js";
 import userServices from "../../services/userService.js";
+import cloudinary from "../../../config/cloudinaryConfig.js";
 
 const pubsub = new PubSub();
 
@@ -484,7 +485,7 @@ const BroadcastResolver = {
         }
 
         const userDetails = await userServices.getUserById(
-          context.req.user.primaryAuthId
+          context.req.user.sub.split("|")[1]
         );
 
         if (!userDetails) {
@@ -531,6 +532,7 @@ const BroadcastResolver = {
           success: true,
         };
       } catch (e) {
+        console.log("Error:" , e)
         return {
           message: "An error occurred",
           success: false,

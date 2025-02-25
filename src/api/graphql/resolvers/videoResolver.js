@@ -21,6 +21,7 @@ import SettingsModel from "../../../models/settingsModel.js";
 import settingsModel from "../../../models/settingsModel.js";
 import CollectionSchema from "../../../models/collectionModel.js";
 import userService from "../../services/userService.js";
+import { RedisFlushModes } from "redis";
 
 const pubsub = new PubSub();
 
@@ -61,6 +62,7 @@ const videoResolver = {
       return videos;
     },
     getVideoByID: async (_, { videoID }) => {
+      console.log("getVideoByID called with videoID:", videoID);
       if (!videoID) return null;
 
       const cacheKey = `video:${videoID}`;
@@ -71,14 +73,15 @@ const videoResolver = {
       }
       const video = await VideosSchema.findById(videoID);
       if (!video) return null;
-      const cachedVideo = await redisClient.set(
+      await redisClient.set(
         cacheKey,
         JSON.stringify(video)
       );
       await redisClient.expire(cacheKey, 60);
-      return cachedVideo;
+      return video;
     },
     getVideoSignedUrl: async (_, { videoID }, context) => {
+      console.log("getVideoSignedUrl called with videoID:", videoID);
       if (!videoID) {
         return { masterUrl: null, segments: null, success: false };
       }
@@ -88,87 +91,86 @@ const videoResolver = {
         return { masterUrl: null, segments: null, success: false };
       }
 
+      // Default video quality for unauthenticated users
       let defaultVideoQuality = "medium";
 
+      // Only try to get user preferences if there's an authenticated user
       if (context?.req?.user) {
-        const userDetails = await UserSchema.findOne({
-          authProviders: {
-            $elemMatch: { oAuthID: context.req.user.sub.split("|")[1] },
-          },
-        });
-
-        if (userDetails) {
-          const userSettings = await settingsModel.findOne({
-            primaryAuthId: userDetails.primaryAuthId,
+        try {
+          const userDetails = await UserSchema.findOne({
+            authProviders: {
+              $elemMatch: { oAuthID: context.req.user.sub.split("|")[1] },
+            },
           });
-          if (userSettings) {
-            defaultVideoQuality = userSettings.defaultQuality;
-          }
 
-          // Update watch history
-          try {
-            const watchHistoryEntry = {
-              videoId: videoID,
-              watchedAt: new Date(),
-              watchDuration: 0,
-            };
+          if (userDetails) {
+            const userSettings = await settingsModel.findOne({
+              primaryAuthId: userDetails.primaryAuthId,
+            });
+            if (userSettings) {
+              defaultVideoQuality = userSettings.defaultQuality;
+            }
 
-            // Try to update existing collection first - remove old entry and add new one
-            await CollectionSchema.findOneAndUpdate(
-              { primaryAuthId: userDetails.primaryAuthId },
-              {
-                $pull: { watchHistory: { videoId: videoID } }, // Remove old entry
-              }
-            );
+            // Update watch history for authenticated users
+            try {
+              const watchHistoryEntry = {
+                videoId: videoID,
+                watchedAt: new Date(),
+                watchDuration: 0,
+              };
 
-            // Add new entry at the beginning
-            await CollectionSchema.findOneAndUpdate(
-              { primaryAuthId: userDetails.primaryAuthId },
-              {
-                $push: {
-                  watchHistory: {
-                    $each: [watchHistoryEntry],
-                    $position: 0, // Add at the beginning of the array
+              await CollectionSchema.findOneAndUpdate(
+                { primaryAuthId: userDetails.primaryAuthId },
+                {
+                  $pull: { watchHistory: { videoId: videoID } },
+                }
+              );
+
+              await CollectionSchema.findOneAndUpdate(
+                { primaryAuthId: userDetails.primaryAuthId },
+                {
+                  $push: {
+                    watchHistory: {
+                      $each: [watchHistoryEntry],
+                      $position: 0,
+                    },
                   },
                 },
-              },
-              { new: true, upsert: true } // Create if doesn't exist
-            );
+                { new: true, upsert: true }
+              );
 
-            // Clear collection cache
-            await redisClient.del(`collection:${userDetails.primaryAuthId}`);
-          } catch (error) {
-            console.error("Error updating watch history:", error);
+              await redisClient.del(`collection:${userDetails.primaryAuthId}`);
+            } catch (error) {
+              console.error("Error updating watch history:", error);
+            }
           }
+        } catch (error) {
+          console.error("Error getting user details:", error);
+          // Continue with default quality on error
         }
       }
 
+      // Get available formats or use default if none specified
+      const availableFormats = video.metaData.available_formats || ["360p"];
+      
       let resolution;
       switch (defaultVideoQuality) {
         case "high":
-          resolution =
-            video.metaData.available_formats[
-              video.metaData.available_formats.length - 1
-            ];
+          resolution = availableFormats[availableFormats.length - 1];
           break;
         case "medium":
-          resolution =
-            video.metaData.available_formats[
-              Math.floor(video.metaData.available_formats.length / 2)
-            ];
+          resolution = availableFormats[Math.floor(availableFormats.length / 2)];
           break;
         case "low":
-          resolution = video.metaData.available_formats[0];
+          resolution = availableFormats[0];
           break;
         default:
-          resolution =
-            video.metaData.available_formats[
-              Math.floor(video.metaData.available_formats.length / 2)
-            ];
+          resolution = availableFormats[Math.floor(availableFormats.length / 2)];
       }
 
       try {
         const result = await getHLSSignedUrls(video.videoKey, resolution);
+        console.log("Signed URLs generated successfully:", result);
         return { ...result, initialResolution: resolution };
       } catch (error) {
         console.error("Error generating signed URLs:", error);
@@ -255,8 +257,8 @@ const videoResolver = {
         return { message: "Unauthorized", success: false };
 
       const userId = context.req.user.sub.split("|")[1];
-      // get primaryAuthID
       const userDetails = await userService.getUserById(userId);
+      
       try {
         const video = await VideosSchema.findOne({
           _id: videoId,
@@ -267,28 +269,38 @@ const videoResolver = {
           return { message: "Video not found", success: false };
         }
 
-        // Start transcoding
+        // Start transcoding without waiting
         transcodeVideo(
           `video-storage/${video.videoKey}`,
           pubsub,
           userId,
           videoId
-        );
+        ).catch(error => {
+          console.error("Transcoding failed:", error);
+          pubsub.publish("VIDEO_STATUS_UPDATE", {
+            videoUploadingAndTranscodingStatus: {
+              status: "FAILED",
+              userId: userId,
+              videoId: videoId,
+              error: error.message,
+            },
+          });
+        });
 
+        // Return immediately while transcoding continues in background
         return {
           message: "Video processing started",
           success: true,
           id: videoId,
         };
+
       } catch (err) {
-        pubsub.publish("VIDEO_STATUS_UPDATE", {
-          videoUploadingAndTranscodingStatus: {
-            status: "FAILED",
-            userId: userId,
-            videoId: videoId,
-          },
-        });
-        return { message: "Processing failed", success: false };
+        console.error("Upload handling error:", err);
+        return { 
+          message: "Processing failed: " + err.message, 
+          success: false,
+          id: videoId,
+        };
       }
     },
     storeVideoDetails: async (_, { input }, context) => {
@@ -402,7 +414,7 @@ const videoResolver = {
 
       await deleteObject(video.videoKey);
       await VideosSchema.findOneAndDelete({ _id: videoID });
-
+      await redisClient.del(`broadcastVideosByToken:${broadcastID}`)
       return {
         message: "Video deleted successfully",
         success: true,

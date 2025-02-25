@@ -24,7 +24,7 @@ const BroadcastSchema = gql`
     broadcast: BroadcasterAccount
     collaboration: Collaboration
     videoAddBy: User
-    userSettings: Settings!
+    userSettings: Settings
     draft: Boolean
     createdAt: String!
   }
